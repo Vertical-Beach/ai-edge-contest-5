@@ -10,7 +10,10 @@
 #include <vitis/ai/dpu_task.hpp>
 #include <vitis/ai/nnpp/yolov3.hpp>
 #include <fstream>
+#include <map>
+#include <vector>
 #include <math.h>
+#include "json11.hpp"
 
 using namespace std;
 using namespace cv;
@@ -88,24 +91,90 @@ class YoloRunner{
 
 };
 
+std::string get_basename(std::string& path) {
+  int l = path.find_last_of('/')+1;
+  int r = path.find_last_of('.');
+    return path.substr(l, r-l);
+}
+
+map<string, string> bbox_to_map(YoloRunner::bbox bbox, int frame_id){
+  map<string, string> res;
+  res["frame_id"] = to_string(frame_id);
+  res["prob"] = to_string(bbox.score);
+  res["x"] = to_string(int(bbox.xmin));
+  res["y"] = to_string(int(bbox.ymin));
+  res["width"] = to_string(int(bbox.xmax - bbox.xmin));
+  res["height"] = to_string(int(bbox.ymax - bbox.ymin));
+  return res;
+}
+
+void gen_output_json(string basename, vector<map<string, string>> bboxlist, int catindex){
+  auto resmap = json11::Json::object();
+  resmap["name"] = basename;
+  resmap["results"] = json11::Json(bboxlist);
+  string filename = basename + (string)"_detection_result_" + to_string(catindex) + (string)".json";
+  std::ofstream file;
+  file.open(filename);
+  file <<  json11::Json(resmap).dump();
+  file.close();
+}
+
 int main(int argc, char* argv[]) {
+  if (argc != 5) {
+    cerr << "usage ./a.out config(.prototxt) modelfile(.xmodel) image_or_video(.jpg/.avi) [image/video]" << endl;
+  }
   char* configfile  = argv[1];
   char* modelfile = argv[2];
-  char* imgfile = argv[3];
-  cout << configfile << " " << modelfile << " " << imgfile;
-  auto runner = YoloRunner(configfile, modelfile);
-  cv::Mat img = cv::imread(imgfile);
-  vector<YoloRunner::bbox> bboxes = runner.Run(img);
+  string img_or_video_file = string(argv[3]);
 
-  string label_names[] = {"car", "pedestrian"};
-  for (auto& box : bboxes) {
-    int label = box.label;
-    float confidence = box.score;
-    cout << label_names[box.label] << " " << box.score << " " << box.xmin << " " << box.xmax << " " << box.ymin << " " << box.ymax << endl;
-    rectangle(img, Point(box.xmin, box.ymin), Point(box.xmax, box.ymax),
-              Scalar(0, 255, 0), 3, 1, 0);
+  cout << configfile << " " << modelfile << " " << img_or_video_file;
+  auto runner = YoloRunner(configfile, modelfile);
+  cout << "Model Initialize Done" << endl;
+  std::string img_or_video_mode = std::string(argv[4]);
+  if (img_or_video_mode == "image") {
+    cv::Mat img = cv::imread(img_or_video_file);
+    vector<YoloRunner::bbox> bboxes = runner.Run(img);
+    string label_names[] = {"car", "pedestrian"};
+    for (auto& box : bboxes) {
+      int label = box.label;
+      float confidence = box.score;
+      cout << label_names[box.label] << " " << box.score << " " << box.xmin << " " << box.xmax << " " << box.ymin << " " << box.ymax << endl;
+      rectangle(img, Point(box.xmin, box.ymin), Point(box.xmax, box.ymax),
+                Scalar(0, 255, 0), 3, 1, 0);
+    }
+    imwrite("result.jpg", img);
+  } else if (img_or_video_mode == "video") {
+    string basename = get_basename(img_or_video_file);
+    cout << basename << endl;
+    vector<map<string, string>> video_bboxes_car, video_bboxes_pedestrian;
+    cv::VideoCapture video;
+    video.open(img_or_video_file);
+    if (video.isOpened() == false){
+      throw std::runtime_error("Could not open the video file");
+    }
+    int fi = 0;
+    while(true){
+      std::cout << fi << std::endl;
+      cv::Mat img;
+      video >> img;
+      if (img.empty()) break;
+      vector<YoloRunner::bbox> bboxes = runner.Run(img);
+      for(auto bbox: bboxes){
+        map<string, string> box_map = bbox_to_map(bbox, fi);
+        if (bbox.label == 0) video_bboxes_car.push_back(box_map);
+        else video_bboxes_pedestrian.push_back(box_map);
+      }
+      fi++;
+    }
+    cout << "generating json.." << endl;
+    //convert results to json
+    gen_output_json(basename, video_bboxes_car, 0);
+    gen_output_json(basename, video_bboxes_pedestrian, 1);
+
+  } else {
+    cerr << "unknown mode :" << img_or_video_mode << endl;
   }
-  imwrite("result.jpg", img);
+
 
   return 0;
 }

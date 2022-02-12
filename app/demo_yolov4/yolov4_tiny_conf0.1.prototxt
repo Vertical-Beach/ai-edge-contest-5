@@ -15,7 +15,7 @@
     anchorCnt: 3
     layer_name: "29"
     layer_name: "36"
-    conf_threshold: 0.3
+    conf_threshold: 0.1
     nms_threshold: 0.45
     biases: 10
     biases: 14
