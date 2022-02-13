@@ -36,17 +36,18 @@ class YoloRunner{
     struct bbox{
       int label;
       float xmin;
-      float xmax;
       float ymin;
-      float ymax;
+      float width;
+      float height;
       float score;
       bbox(vitis::ai::YOLOv3Result::BoundingBox yolobbox, float img_width, float img_height){
         this->label = yolobbox.label;
         this->score = yolobbox.score;
-        this->xmin = std::max((float)0, yolobbox.x * img_width);
-        this->ymin = std::max((float)0, yolobbox.y * img_height);
-        this->xmax = std::min((yolobbox.x + yolobbox.width) * img_width, img_width);
-        this->ymax = std::min((yolobbox.y + yolobbox.height) * img_height, img_height);
+        // does not clamp here
+        this->xmin = yolobbox.x * img_width;
+        this->ymin = yolobbox.y * img_height;
+        this->width = yolobbox.width * img_width;
+        this->height = yolobbox.height * img_height;
       }
     };
 
@@ -101,10 +102,10 @@ map<string, string> bbox_to_map(YoloRunner::bbox bbox, int frame_id){
   map<string, string> res;
   res["frame_id"] = to_string(frame_id);
   res["prob"] = to_string(bbox.score);
-  res["x"] = to_string(int(bbox.xmin));
-  res["y"] = to_string(int(bbox.ymin));
-  res["width"] = to_string(int(bbox.xmax - bbox.xmin));
-  res["height"] = to_string(int(bbox.ymax - bbox.ymin));
+  res["x"] = to_string(bbox.xmin);
+  res["y"] = to_string(bbox.ymin);
+  res["width"] = to_string(bbox.width);
+  res["height"] = to_string(bbox.height);
   return res;
 }
 
@@ -138,8 +139,12 @@ int main(int argc, char* argv[]) {
     for (auto& box : bboxes) {
       int label = box.label;
       float confidence = box.score;
-      cout << label_names[box.label] << " " << box.score << " " << box.xmin << " " << box.xmax << " " << box.ymin << " " << box.ymax << endl;
-      rectangle(img, Point(box.xmin, box.ymin), Point(box.xmax, box.ymax),
+      float xmin = max(0.0f, box.xmin);
+      float ymin = max(0.0f, box.ymin);
+      float xmax = min(box.xmin + box.width, (float)img.rows-1.0f);
+      float ymax = min(box.ymin + box.height, (float)img.cols-1.0f);
+      cout << label_names[box.label] << " " << box.score << " " << xmin << " " << xmax << " " << ymin << " " << ymax << endl;
+      rectangle(img, Point(xmin, ymin), Point(xmax, ymax),
                 Scalar(0, 255, 0), 3, 1, 0);
     }
     imwrite("result.jpg", img);
