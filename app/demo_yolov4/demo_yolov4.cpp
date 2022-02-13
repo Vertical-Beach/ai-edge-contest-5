@@ -141,8 +141,8 @@ int main(int argc, char* argv[]) {
       float confidence = box.score;
       float xmin = max(0.0f, box.xmin);
       float ymin = max(0.0f, box.ymin);
-      float xmax = min(box.xmin + box.width, (float)img.rows-1.0f);
-      float ymax = min(box.ymin + box.height, (float)img.cols-1.0f);
+      float xmax = min(box.xmin + box.width, (float)img.cols-1.0f);
+      float ymax = min(box.ymin + box.height, (float)img.rows-1.0f);
       cout << label_names[box.label] << " " << box.score << " " << xmin << " " << xmax << " " << ymin << " " << ymax << endl;
       rectangle(img, Point(xmin, ymin), Point(xmax, ymax),
                 Scalar(0, 255, 0), 3, 1, 0);
