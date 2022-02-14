@@ -1,13 +1,13 @@
 # 第5回AIエッジコンテスト 提出物実行方法
 
 ## SDカードのセットアップ
-`sd.img`をSDカード(16GB以上)に書き込みます
+`sd.img`をSDカード(16GB以上)に書き込みます。
 ```sh
 dd
 ```
 
 ## Ultra96のセットアップ
-SDカードをUltra96にセットし、ブートモードをSDにします。
+SDカードをUltra96にセットし、SDブートモードにします。
 UART-JTAGコネクタ・電源・USB-LANをUltra96に接続します。
 UART-JTAGコネクタはホストPCとMicroUSBケーブルで接続し、USB-LANケーブルにLANケーブルを接続します。
 ※Ultra96のWiFiは対応していません。
@@ -30,16 +30,13 @@ ssh root@192.168.2.102 #password: root
 ```
 
 ## 入力用データセットの準備
-Ultra96で動作するトラッキングアプリケーションは、mp4形式の動画入力に対応していないため、avi形式に変換する必要があります。ここではffmpegを使用した変換の手順を示します。
+Ultra96で動作するトラッキングアプリケーションは、mp4形式の動画入力に対応していないため、事前にホストPCでavi形式に変換する必要があります。ここではffmpegを使用した変換の手順を示します。テスト動画は再配布禁止のためSDイメージに含まれていません。
 
 ```bash
 cd <parent of 'test_videos' directory>
 mkdir test_videos_avi
 cd test_videos_avi
-for N in {0..73}; do
-    S=$(printf "%02d\n" "${N}")
-    ffmpeg  -i ../test_videos/test_${S}.mp4 -vcodec mjpeg test_${S}.avi
-done
+ffmpeg  -i ../test_videos/test_00.mp4 -vcodec mjpeg test_00.avi #00~73
 ```
 変換完了後、`test_videos_avi`ファイルをUltra96の`/home/root/`以下に配置します。
 ```sh
@@ -47,39 +44,50 @@ cd ..
 scp -r test_videos_avi root@192.168.2.102:/home/root
 ```
 
-## トラッキングアプリケーションのビルド
-ビルド済みアプリケーションが`sd.img`には含まれているので、再ビルドする際にのみ必要です。
+## トラッキングライブラリのビルド
+ビルド済みライブラリ`libbytetrack.so`が`sd.img`には含まれているので、再ビルドする際にのみ必要です。
 Ultra96上で作業を行います。
 ```sh
 cd ~
 cd ByteTrack-cpp-ai-edge-contest-5
-#build libbytetrack.so
 mkdir build && cd build
 cmake -DRISCV=ON -DDPU=ON ..
-make -j
-cd ../app/generate_submit_file/
-#build tracking application
-mkdir build && cd build
-cmake -DRISCV=ON -DDPU=ON
 make -j
 ```
 
 ## トラッキングアプリケーションの実行
+トラッキングアプリケーションのディレクトリに移動します。
 ```sh
-cd ~
-cd ~/ByteTrack-cpp-ai-edge-contest-5/app/generate_submit_file/build
-sh demo_run.sh #37分程度かかります
+cd ~/ByteTrack-cpp-ai-edge-contest-5/app/generate_submit_file
 ```
 
-実行が完了すると、`build`ディレクトリ以下に`prediction_test_xx.json`が動画ファイルごとに作成されます。最後にこれらをまとめてSIGNATEの投稿用のJSONファイルを生成します。
+`run.bash`はアプリケーションのビルド・実行・評価用JSONファイルの生成の一連の処理を行います。  
+`run.bash`の実行コマンドは以下の通りです。  
+Usage1は物体検出の推論を実行せずに、JSONファイルから読み込みトラッキングのみを実行します。  
+Usage2はDPU,RISCVを使用して物体検出およびトラッキング処理の両方を実行します。
 ```
-cd ..
-python3 combine_submit.py
+Usage 1: ./run.bash <videos directory path> <video name prefix> json <detection results directory path>
+Usage 2: ./run.bash <videos directory path> <video name prefix> dpu <modelconfig .prototxt> <modelfile .xmodel>
 ```
+テストデータに対する実行コマンドは以下の通りです。
+```
+./run.bash ~/test_videos_avi test dpu ~/demo_yolov4/yolov4_tiny_conf0.1.prototxt ~/yolov4_tiny_signate/yolov4_tiny_signate.xmodel
+```
+※`<modelconfig .prototxt>`にはファイル名が`conf0.1`のものを使用してください。`conf0.3`, `conf0.5`を使用すると期待通りの評価値が得られません。
+
+実行が完了すると、以下のような実行時間のサマリが表示されます。1フレームごと・動画ごとの処理時間が表示されます。  
+レポートで詳しく説明していますが、マルチスレッド処理により全体処理時間は物体検出・トラッキング処理の合計時間よりも小さくなっています。
+```
+time summary:
+inference : 59.97ms/frame 8995.00ms/video
+tracking : 60.64ms/frame 9096.00ms/video
+inference + tracking : 61.57ms/frame 9235.00ms/video
+```
+
 最終的に生成された`predictions.json`が評価用のJSONファイルとなります。
 
 ## tiny-YOLOv4単体アプリケーションの実行
-ここではtiny-YOLOv4単体アプリケーションの実行方法について説明します。
+ここではtiny-YOLOv4単体アプリケーションの実行方法について説明します。  
 画像に対する推論処理、または動画に対する推論処理を実行してJSONファイルとして保存することができます。
 ```sh
 cd demo_yolov4
@@ -111,6 +119,64 @@ pedestrian 0.679071 828.476 893.398 574.704 704.826
 ![](img/tiny-yolov4-result.jpg)
 
 ## RISCV単体アプリケーションの実行
-ここではRISCVにオフロードした処理のテストを行うアプリケーションの実行方法について説明します。
+ここではRISCVにオフロードした処理のテストを行うアプリケーションの実行方法について説明します。  
+線形割当問題のハンガリアン法アルゴリズムをRISCVで実行し、入力に対し期待する出力が得られるかを確認します。
+クロスコンパイル方法などについては`riscv_test/README.md`を参考にしてください。  
+主なファイルは以下の通りです。  
+- host/main.cpp: riscvで実行されるハンガリアン法アルゴリズム
+- edge/main.cpp: riscv実行・入出力チェックを行うプログラム
+- edge/riscv_imm.c: `host`側でコンパイルされたRISCV向け命令データ
+- edge/data/: 入出力用データ
+
+```sh
+cd riscv_test
+cd edge
+g++ main.cpp riscv_imm.c
+./a.out
+```
+以下のように出力され、正常に動作していることが確認できます。  
+```
+n: 30
+set input:433[microsec]
+      run:873[microsec]
+Attempt 0 Success
+n: 30
+set input:115[microsec]
+      run:854[microsec]
+Attempt 1 Success
+...
+Attempt 606 Success
+ALL PASS
+
+```
 
 
+## 付録
+Ultra96への各種ライブラリ・ツールのインストール作業を説明します。  
+ここでの作業は`sd.img`では既に行われているので実行する必要はありません。
+
+### VART(Vitis-AI runtime)のインストール
+[Vitis-AI v1.4](https://github.com/Xilinx/Vitis-AI/tree/v1.4/setup/mpsoc/VART)からVARTをダウンロードします。
+```sh
+cd VART
+./target_vart_setup_2020.2.sh #エラーが出る場合、rpm --nodepsを追加
+```
+
+### Eigenのインストール
+```sh
+export EIGEN_VERSION=3.3.9
+mkdir -p /tmp/eigen && cd /tmp/eigen && \
+    wget https://gitlab.com/libeigen/eigen/-/archive/3.3.9/eigen-3.3.9.zip && \
+    unzip eigen-${EIGEN_VERSION}.zip -d . && \
+    mkdir /tmp/eigen/eigen-${EIGEN_VERSION}/build && cd /tmp/eigen/eigen-${EIGEN_VERSION}/build/ && \
+    cmake .. && \
+    make install && \
+    cd /tmp && rm -rf eigen
+```
+
+### CMakeのインストール
+```sh
+git clone -b release --depth=1 https://github.com/Kitware/CMake.git && cd CMake && \
+     ./bootstrap && make -j "$(nproc)" && make install && \
+     cd ../ && rm -rf CMake
+```
