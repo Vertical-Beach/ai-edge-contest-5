@@ -1,28 +1,30 @@
 # 第5回AIエッジコンテスト 提出物実行方法
 
 ## SDカードのセットアップ
-`sd.img`をSDカード(16GB以上)に書き込みます。
+`sd.img`をSDカード(16GB以上)に書き込みます。ddコマンドまたは[Etcher](https://www.balena.io/etcher/)を使用して書き込みます。
 ```sh
-dd
+sudo fdisk -l #SDのデバイスを確認, 以下の場合はsdc
+sudo dd if=sd.img of=/dev/sdc bs=1M 
 ```
 
 ## Ultra96のセットアップ
-SDカードをUltra96にセットし、SDブートモードにします。
-UART-JTAGコネクタ・電源・USB-LANをUltra96に接続します。
-UART-JTAGコネクタはホストPCとMicroUSBケーブルで接続し、USB-LANケーブルにLANケーブルを接続します。
-※Ultra96のWiFiは対応していません。
+SDカードをUltra96にセットし、SDブートモードにします。  
+UART-JTAGコネクタ・電源・USB-LANをUltra96に接続します。  
+UART-JTAGコネクタはホストPCとMicroUSBケーブルで接続し、USB-LANケーブルにLANケーブルを接続します。  
+※Ultra96のWiFiには対応していません。
 
-USB-LANはr8152またはAX88179が搭載されている以下の製品での動作確認ができています。
+USB-LANはr8152またはAX88179が搭載されている以下の製品での動作確認をしています。  
+SDが正しく書き込めていない場合、ブート中にKernelPanicを起こしたりUSB-LANアダプタが使用できないといった事象を確認しています。  
 - https://www.amazon.co.jp/gp/product/B07MK6DJ6M/
 - https://www.planex.co.jp/products/usb-lan1000r/spec.shtml
 
 Ultra96の電源ボタンを押して電源を駆動し、TeraTermやgtktermなどUSBシリアル接続が可能なアプリケーションを起動します。
-BandRateは115200を設定してください。以下にgtktermでの接続画面を示します。
-![](./img/gtkterm.png)
+BandRateは115200を設定してください。以下にgtktermでの接続画面を示します。  
+<img src=./img/gtkterm.png width=400>
 
 ブートが問題なく成功し、シリアル接続ができればユーザ名`root`パスワード`root`でログインしてください。
 `ifconfig`でUSB-LAN経由で割り当てられたIPアドレスを確認します。以下の例では`192.168.2.102`が割り当てられています。
-![](./img/gtkterm2.png)
+<img src=./img/gtkterm2.png width=450>
 
 以降はホストPCからのssh接続で作業を続行できます。
 ```sh
@@ -30,7 +32,7 @@ ssh root@192.168.2.102 #password: root
 ```
 
 ## 入力用データセットの準備
-Ultra96で動作するトラッキングアプリケーションは、mp4形式の動画入力に対応していないため、事前にホストPCでavi形式に変換する必要があります。ここではffmpegを使用した変換の手順を示します。テスト動画は再配布禁止のためSDイメージに含まれていません。
+Ultra96で動作するトラッキングアプリケーションは、mp4形式の動画入力に対応していないため、事前にホストPCでavi形式に変換する必要があります。ここではffmpegを使用した変換の手順を示します。テスト動画は再配布禁止のためSDイメージに含まれていません。変換時にffmpegに`-vcodec mjpeg`を指定することに注意してください。指定しない場合、生成されたファイルは拡張子はaviですがコーデックがmp4のためアプリケーションから読み込むことができません。
 
 ```bash
 cd <parent of 'test_videos' directory>
@@ -71,7 +73,12 @@ Usage 2: ./run.bash <videos directory path> <video name prefix> dpu <modelconfig
 ```
 テストデータに対する実行コマンドは以下の通りです。
 ```
-./run.bash ~/test_videos_avi test dpu ~/demo_yolov4/yolov4_tiny_conf0.1.prototxt ~/yolov4_tiny_signate/yolov4_tiny_signate.xmodel
+./run.bash \
+~/test_videos_avi \
+test \
+dpu \
+~/demo_yolov4/yolov4_tiny_conf0.1.prototxt \
+~/yolov4_tiny_signate/yolov4_tiny_signate.xmodel
 ```
 ※`<modelconfig .prototxt>`にはファイル名が`conf0.1`のものを使用してください。`conf0.3`, `conf0.5`を使用すると期待通りの評価値が得られません。
 
@@ -92,7 +99,11 @@ inference + tracking : 61.57ms/frame 9235.00ms/video
 ```sh
 cd demo_yolov4
 sh build.sh
-./demo_yolov4 ./yolov4_tiny_conf0.5.prototxt ../yolov4_tiny_signate/yolov4_tiny_signate.xmodel ./test.jpg image
+./demo_yolov4 \
+./yolov4_tiny_conf0.5.prototxt \
+../yolov4_tiny_signate/yolov4_tiny_signate.xmodel \
+./test.jpg \
+image
 ```
 
 - 出力結果
@@ -115,8 +126,8 @@ pedestrian 0.8173 890.1 971.438 575.575 745.113
 pedestrian 0.729961 620.609 701.947 563.076 732.614
 pedestrian 0.679071 828.476 893.398 574.704 704.826
 ```
-結果は`result.jpg`として保存されます。
-![](img/tiny-yolov4-result.jpg)
+結果は`result.jpg`として保存されます。  
+<img src=img/tiny-yolov4-result.jpg width=500>
 
 ## RISCV単体アプリケーションの実行
 ここではRISCVにオフロードした処理のテストを行うアプリケーションの実行方法について説明します。  
