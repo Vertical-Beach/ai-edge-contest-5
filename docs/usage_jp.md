@@ -86,9 +86,9 @@ dpu \
 レポートで詳しく説明していますが、マルチスレッド処理により全体処理時間は物体検出・トラッキング処理の合計時間よりも小さくなっています。
 ```
 time summary:
-inference : 59.97ms/frame 8995.00ms/video
+detection : 59.97ms/frame 8995.00ms/video
 tracking : 60.64ms/frame 9096.00ms/video
-inference + tracking : 61.57ms/frame 9235.00ms/video
+detection + tracking : 61.57ms/frame 9235.00ms/video
 ```
 
 最終的に生成された`predictions.json`が評価用のJSONファイルとなります。
