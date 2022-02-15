@@ -32,7 +32,7 @@ ssh root@192.168.2.102 #password: root
 ```
 
 ## 入力用データセットの準備
-Ultra96で動作するトラッキングアプリケーションは、mp4形式の動画入力に対応していないため、事前にホストPCでavi形式に変換する必要があります。ここではffmpegを使用した変換の手順を示します。テスト動画は再配布禁止のためSDイメージに含まれていません。変換時にffmpegに`-vcodec mjpeg`を指定することに注意してください。指定しない場合、生成されたファイルは拡張子はaviですがコーデックがmp4のためアプリケーションから読み込むことができません。
+Ultra96で動作するトラッキングアプリケーションは、mp4形式の動画入力に対応していないため、事前にホストPCでavi形式に変換する必要があります。ここではffmpegを使用した変換の手順を示します。変換時にffmpegに`-vcodec mjpeg`を指定することに注意してください。指定しない場合、生成されたファイルは拡張子はaviですがコーデックがmp4のためアプリケーションから読み込むことができません。
 
 ```bash
 cd <parent of 'test_videos' directory>
@@ -86,9 +86,9 @@ dpu \
 レポートで詳しく説明していますが、マルチスレッド処理により全体処理時間は物体検出・トラッキング処理の合計時間よりも小さくなっています。
 ```
 time summary:
-detection : 59.97ms/frame 8995.00ms/video
-tracking : 60.64ms/frame 9096.00ms/video
-detection + tracking : 61.57ms/frame 9235.00ms/video
+detection : 51.66ms/frame 7748.95ms/video
+tracking : 29.93ms/frame 4489.57ms/video
+detection + tracking : 52.30ms/frame 7845.12ms/video
 ```
 
 最終的に生成された`predictions.json`が評価用のJSONファイルとなります。
