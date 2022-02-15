@@ -1,3 +1,17 @@
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/katex.min.css" integrity="sha384-9eLZqc9ds8eNjO3TmqPeYcDj8n+Qfa4nuSiGYa6DjLNcv9BtN69ZIulL9+8CqC9Y" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/katex.min.js" integrity="sha384-K3vbOmF2BtaVai+Qk37uypf7VrgBubhQreNQe9aGsz9lB63dIFiQVlJbr92dw2Lx" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/contrib/auto-render.min.js" integrity="sha384-kmZOZB5ObwgQnS/DuDg6TScgOiWWBiVt0plIRkZCmE6rDZGrEOQeHM5PcHi+nyqe" crossorigin="anonymous"></script>
+<script>
+ document.addEventListener("DOMContentLoaded", () => {
+   renderMathInElement(document.body, {
+     delimiters: [
+       { left: "$$", right: "$$", display: true },
+       { left: "$", right: "$", display: false }
+     ]
+   });
+ });
+</script>
+
 # 第5回 AIエッジコンテスト Vertical-Beach レポート
 
 ## 最終成果物概要
@@ -60,7 +74,7 @@ VitisフローではベースとなるVivadoプラットフォームデザイン
 ![](./img/riscv_dpu_util2.png)
 
 ## 物体検出処理
-物体検出処理のDNNモデルとして[tiny-YOLOv4](https://github.com/AlexeyAB)を採用した。採用した理由としては比較的軽量なモデルであること、第3回AIエッジコンテストで多数の参加者が使用していたtiny-YOLOv3にくらべて推論精度が向上していることが挙げられる。コンテストの題材が同じ第3回AIエッジコンテストでは、入賞者は精度向上のために入力画像の解像度を元動画とほぼ解像度としていたが、今回はエッジデバイスでの高速な推論を実現する必要があったため、入力解像度は416*416とした。
+物体検出処理のDNNモデルとして[tiny-YOLOv4](https://github.com/AlexeyAB)を採用した。採用した理由としては比較的軽量なモデルであること、第2回AIエッジコンテストで多数の参加者が使用していたtiny-YOLOv3にくらべて推論精度が向上していることが挙げられる。コンテストの題材が同じ第3回AIエッジコンテストでは、入賞者は精度向上のために入力画像の解像度を元動画とほぼ解像度としていたが、今回はエッジデバイスでの高速な推論を実現する必要があったため、入力解像度は416*416とした。
 
 tiny-YOLOv4の学習はオリジナルのリポジトリを参考に行なった。コンテストで与えられている学習画像は少ないため、同じ交通データセットである[BDD100K](https://bair.berkeley.edu/blog/2018/05/30/bdd/)を使用して最初の学習を行い、途中からSIGNATEのデータセットを使用して学習を行なった。学習過程でのlossおよびmAPカーブを以下に示す。400000iterationを超えたところで学習は打ち切った。学習中のmAPが最大になったのは150000iterationを過ぎたあたりで、mAPの値は47.1であった。なお、tiny-YOLOv3も同様に学習を行なったが、mAPのベストスコアは36.0でありtiny-YOLOv4のほうが精度が高いことが確認された。
 ![](./img/loss_curve.png)
@@ -69,9 +83,136 @@ tiny-YOLOv4の学習はオリジナルのリポジトリを参考に行なった
 Vitis-AIでDPU向けにtiny-YOLOv4を変換するにあたり、以下の工夫を行なった。オリジナルのtiny-YOLOv4はdarknetフレームワークを用いているが、Vitis-AIのDPU向けの変換可能な入力フレームワークはTensorflow, Caffe, PyTorchでありdarknetには直接対応していない。Vitis-AIでは[darknetのモデルをCaffeのフレームワークに変換するためのスクリプト](https://github.com/Xilinx/Vitis-AI/blob/1.4/models/AI-Model-Zoo/caffe-xilinx/scripts/convert.py)が公開されている。ただし、このスクリプトをそのまま使用するとtiny-YOLOv4の中間層に含まれるgroupレイヤがDPUで処理できないために、DPUで実行されるモデルが分割されてしまう。モデルが分割されると、groupレイヤの処理はARMコアで実行されるため、ARMコアとDPUコアでの通信が推論処理の前後だけでなく間でも必要になり推論時間が増加してしまう。この問題を解決するために、groupレイヤを演算が等価なconvolutionレイヤに置き換えるように変換スクリプトを修正した。修正した結果、tiny-YOLOv4の推論処理はすべてDPU上で実行されるようになった。
 
 ## トラッキング処理
-<!-- なぜByteTrackを採用したか -->
-<!-- オリジナルのByteTrackの問題点・修正点 -->
-<!-- 修正した結果どのようになったか -->
+
+トラッキング処理では物体検出処理で得られた物体のフレーム間の紐付けを行う。  
+具体的には同一の物体に対して同一の ID を付与する。
+
+我々のチームではトラッキングアルゴリズムに [[Y. Zhang+, arXiv21] `ByteTrack`](https://arxiv.org/abs/2110.06864) を採用した。  
+ByteTrack は物体検出結果のスコアを使用して物体のフレーム間の紐付けを段階的に行う。  
+スコアの高い検出結果とスコアの低い検出結果を別々に扱うことで、シンプルなアルゴリズムでありつつも既存の手法と比べて高い精度を達成している。
+
+| MOT アルゴリズム比較 | ByteTrack の擬似コード |
+| ---- | ---- |
+| !["arXiv21_fig1.png"](./img/arXiv21_fig1.png) | !["arXiv21_alg1.png"](./img/arXiv21_alg1.png) |  
+([Y. Zhang+, arXiv21] Figure.1 および Algorithm.1 より引用)
+
+ByteTrack を採用した理由として以下が挙げられる。
+
+- Tracking-by-Detection 系のトラッキングアルゴリズムであり、 DPU を用いた物体検出処理との統合が容易であるため
+  - [オリジナルの ByteTrack](https://github.com/ifzhang/ByteTrack) は物体検出に YOLOX を利用している
+  - 2D Bounding Box とそのスコア (confidence) を出力する物体検出アルゴリズムであれば他のアルゴリズムでも利用可能
+- 処理が比較的高速であり、かつ、それなりの精度が見込まれたため
+  - 処理はカルマンフィルタによる予測／更新、 IoU 計算、ハンガリアン法によるマッチング処理等で構成されている
+- DNN ベースの手法とは異なり、使用するパラメータ数が少ないことから FPGA 上の RISC-V コアへのオフロードが容易と思われたため
+
+ByteTrack の公開実装には Python 実装および C++ 実装が含まれる。  
+この内 C++ 実装を切り出し、物体検出アルゴリズムへの依存を排除した上でリファクタリングを行った。  
+リファクタリング後の実装は [こちら](https://github.com/Vertical-Beach/ByteTrack-cpp) で公開している。
+
+### トラッキング処理の精度改善
+
+DPU による tiny-YOLOv4 の推論結果をオリジナルの ByteTrack に入力して評価を行ったところ MOTA の値が 0.177 となった。  
+十分なトラッキング精度が得られない原因として以下が挙げられる。
+
+- 評価対象の動画のフレームレートが低く、特に車両走行時の歩行者の状態をカルマンフィルタによって予測するのが困難
+
+ByteTrack の preprint において評価対象となっているのは [MOT Charange](https://motchallenge.net/) のデータセットであり、このデータセットに含まれる 30 FPS の動画が使用されていた。  
+今回のコンテストのテストデータは 5 FPS であるため、この差を考慮して精度改善を行う必要があった。
+
+精度改善にあたり、オリジナルの ByteTrack の実装に対して主に以下の変更を加えた。
+
+1. パラメータ調節
+2. コスト計算時に画像類似度および距離を考慮する実装を追加
+
+これらの変更によってテストデータでの MOTA の値が 0.177 から **0.280** まで向上した。  
+
+#### 1. パラメータ調節
+
+以下の既存のパラメータを tiny-YOLOv4 および今回のテストデータ向けに調節した。
+
+- 物体検出アルゴリズムのスコアに関するしきい値
+- カルマンフィルタのシステム雑音と観測雑音に対する重み
+- ロストした物体の生存期間
+
+#### 2. コスト計算時に画像類似度および距離を考慮する実装を追加
+
+オリジナルの ByteTrack の実装は以下の2つの Bounding Box 間の IoU を計算し、この値をコストとしてハンガリアン法による線形割当問題を解く。
+
+- カルマンフィルタによって予測した Bouding Box の現状態
+- 物体検出アルゴリズムの推論結果
+
+カルマンフィルタは Bouding Box の状態に対する予測を行う。  
+この状態は $\{x_c, y_c, a, h, vx_c, vy_c, va, vh\}$ の8変数で表され、それぞれ、
+
+- $x_c$: Bounding Box の中心の x 座標
+- $y_c$: Bounding Box の中心の y 座標
+- $a$: Bounding Box のアスペクト比
+- $h$: Bounding Box の高さ
+- $vx_c$: $x_c$ の速度
+- $vy_c$: $y_c$ の速度
+- $va$: $a$ の速度
+- $vh$: $h$ の速度
+
+を表す。  
+この状態空間モデルのシステム行列 $A$ と観測行列 $C$ はそれぞれ以下のように定義されている。
+
+$$
+A = \begin{bmatrix}
+  1 & 0 & 0 & 0 & 1 & 0 & 0 & 0 \cr
+  0 & 1 & 0 & 0 & 0 & 1 & 0 & 0 \cr
+  0 & 0 & 1 & 0 & 0 & 0 & 1 & 0 \cr
+  0 & 0 & 0 & 1 & 0 & 0 & 0 & 1 \cr
+  0 & 0 & 0 & 0 & 1 & 0 & 0 & 0 \cr
+  0 & 0 & 0 & 0 & 0 & 1 & 0 & 0 \cr
+  0 & 0 & 0 & 0 & 0 & 0 & 1 & 0 \cr
+  0 & 0 & 0 & 0 & 0 & 0 & 0 & 1
+\end{bmatrix}, \quad C = \begin{bmatrix}
+  1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \cr
+  0 & 1 & 0 & 0 & 0 & 0 & 0 & 0 \cr
+  0 & 0 & 1 & 0 & 0 & 0 & 0 & 0 \cr
+  0 & 0 & 0 & 1 & 0 & 0 & 0 & 0
+\end{bmatrix}
+$$
+
+すなわち、Bounding Box の予測においては前状態に対して速度を足した結果を現状態の予測値としている。  
+フレームレートが低い今回のテストデータに対してこの予測を実施すると以下の問題が発生する。
+
+- 特に初期化直後において、速度の分布の平均の絶対値が小さい状態であっても物体の座標が大きく動くことがある
+- 加速度まで考慮していないため、車両が高速で移動しているときに予測結果がずれる
+
+これらの問題によってハンガリアン法による物体の紐付けの精度が低下していることが分かった。  
+精度の低下を緩和するために、カルマンフィルタによる予測値と物体検出結果の IoU の値以外に以下の2つをコストに考慮させるようにした。
+
+1. ユークリッド距離
+1. 前状態の Bounding Box と物体検出結果の画像類似度
+
+図にすると以下のようになる。
+
+!["bytetrack_cost.png"](./img/bytetrack_cost.png)
+
+速度の予測値が実際の値より小さい場合が多いため、速度ベクトルの向きの $\pm \pi / 4$ の一定距離内に存在する物体検出結果もコスト計算に考慮している。  
+具体的には、距離が近い順にコストを下げるようにしている。
+
+画像類似度の計算には以下の指標を利用している。
+
+- 色相 (Saturation)
+- 彩度 (Hue)
+- Local Binary Pattern (LBP) 特徴量
+
+色相および彩度は HSV 変換により求めており、色の特徴を得るために利用している。  
+LBP 特徴量はテクスチャの特徴を得るために利用している。
+
+それぞれヒストグラム化して固定長のベクトルとし、これを特徴量として扱った。  
+また、 Bounding Box をブロック分割してそれぞれのブロックの特徴量を連結させることで空間情報も考慮させている。  
+車両は縦方向に3分割し、歩行者は縦方向に2分割した。
+
+上記の画像特徴量を
+
+- 前状態の Bounding Box
+- 物体検出結果
+
+のそれぞれに対して導出し、各特徴量のコサイン類似度を計算、その重み付け平均をコストに反映した。  
+ただし、前状態の Bounding Box と物体検出結果の距離が大きい場合にはこれを考慮しないようにしている。
 
 ## RISCVへの処理のオフロード
 トラッキング処理に含まれる`lapjv(Linear Assignment Problem solver using Jonker-Volgenant algorithm)`関数をRISCV上で実行することにした。
